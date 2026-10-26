@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#141414">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<title>Minhas Cifras</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;font-family:system-ui,-apple-system,sans-serif;background:#fafafa;color:#222;font-size:16px}
+body.dark{background:#141414;color:#e8e8e8}
+header{padding:10px 14px;display:flex;align-items:center;gap:6px;border-bottom:1px solid #0001;position:sticky;top:0;background:inherit;z-index:10}
+body.dark header{border-color:#fff1}
+h1{font-size:17px;margin:0;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+button{background:#2563eb;color:#fff;border:0;padding:8px 10px;border-radius:8px;font-size:14px;cursor:pointer;font-family:inherit;white-space:nowrap}
+button.ghost{background:transparent;color:inherit;border:1px solid #0002}
+body.dark button.ghost{border-color:#fff3}
+main{padding:14px;max-width:720px;margin:0 auto;padding-bottom:120px}
+.search{width:100%;padding:10px;border-radius:8px;border:1px solid #0002;background:#fff;color:#111;font-size:15px;margin-bottom:10px;font-family:inherit}
+body.dark .search{background:#1e1e1e;color:#eee;border-color:#fff3}
+.song-item{padding:12px 4px;border-bottom:1px solid #0001;display:flex;align-items:center;gap:8px;background:inherit}
+body.dark .song-item{border-color:#fff1}
+.song-item.drag-over{border-top:2px solid #2563eb}
+.song-item.dragging{opacity:0.5}
+.song-item .info{flex:1;min-width:0;cursor:pointer}
+.song-item h3{margin:0 0 2px;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.song-item small{opacity:.6}
+.star{background:transparent;border:0;font-size:20px;padding:4px;cursor:pointer;color:inherit}
+.move-btn{background:transparent;color:inherit;border:1px solid #0002;padding:4px 8px;border-radius:6px;font-size:16px}
+body.dark .move-btn{border-color:#fff3}
+.line{line-height:1.75;margin:0 0 2px;display:flex;flex-wrap:wrap}
+.seg{display:inline-flex;flex-direction:column;vertical-align:bottom}
+.chord{color:#d81b60;font-weight:700;font-size:.82em;white-space:pre;line-height:1.2;min-height:1.2em}
+body.dark .chord{color:#ff7eb3}
+.lyric{white-space:pre-wrap}
+.section{font-weight:600;margin:16px 0 4px;opacity:.7;font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+.controls{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.badge{background:#2563eb;color:#fff;padding:2px 8px;border-radius:6px;font-size:13px;font-weight:600}
+textarea{width:100%;min-height:50vh;font-family:ui-monospace,monospace;font-size:14px;padding:10px;border-radius:8px;border:1px solid #0002;background:#fff;color:#111;resize:vertical}
+body.dark textarea{background:#1e1e1e;color:#eee;border-color:#fff3}
+input[type=text]{width:100%;padding:10px;border-radius:8px;border:1px solid #0002;margin-bottom:8px;background:#fff;color:#111;font-size:15px;font-family:inherit}
+body.dark input[type=text]{background:#1e1e1e;color:#eee;border-color:#fff3}
+.player{position:fixed;bottom:0;left:0;right:0;background:inherit;border-top:1px solid #0001;padding:10px 16px;display:flex;gap:10px;align-items:center;padding-bottom:calc(10px + env(safe-area-inset-bottom))}
+body.dark .player{border-color:#fff1}
+.player input[type=range]{flex:1}
+.toolbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.footer-btns{display:flex;gap:8px;margin-top:24px;padding-top:16px;border-top:1px solid #0002;flex-wrap:wrap}
+body.dark .footer-btns{border-color:#fff1}
+</style>
+</head>
+<body>
+<header id="header"></header>
+<main id="app"></main>
+<div class="player" id="player" hidden></div>
+<script>
+const LS='cifras.v1';
+const state={
+  songs:JSON.parse(localStorage.getItem(LS)||'[]'),
+  view:'list',currentId:null,
+  transpose:0,capo:0,flats:false,
+  playing:false,speed:1.0,font:1.0,
+  dark:localStorage.getItem('dark')==='1',
+  search:'',filter:'all',
+  sortMode:false // NOVO: Controle do modo de ordenação
+};
+const save=()=>localStorage.setItem(LS,JSON.stringify(state.songs));
+document.body.classList.toggle('dark',state.dark);
+
+// ===== Transposição =====
+const SHARP=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const FLAT=['C','Db','D','Eb','E','F','Gb','G','Ab','A','Bb','B'];
+const BASE={C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+const CH_RE=/^([A-G])([#b]?)(.*?)(?:\/([A-G])([#b]?))?$/;
+const ni=(l,a)=>(BASE[l]+(a==='#'?1:a==='b'?-1:0)+12)%12;
+function tp(c,semi,flats){
+  const m=c.match(CH_RE);if(!m)return c;
+  const t=flats?FLAT:SHARP;
+  const[,r,ra,suf,br,ba]=m;
+  let o=t[(ni(r,ra)+semi+120)%12]+suf;
+  if(br)o+='/'+t[(ni(br,ba)+semi+120)%12];
+  return o;
+}
+function parseLine(line){
+  const parts=[];const before=line.split('[')[0];
+  if(before)parts.push({chord:'',text:before});
+  const re=/\[([^\]]*)\]([^\[]*)/g;let m;
+  while((m=re.exec(line)))parts.push({chord:m[1],text:m[2]});
+  return parts;
+}
+const $=s=>document.querySelector(s);
+const esc=s=>(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let raf=null;
+function stopScroll(){if(raf)cancelAnimationFrame(raf);raf=null}
+function startScroll(){stopScroll();let last=performance.now(),acc=0;const step=now=>{if(!state.playing){raf=null;return}acc+=state.speed*30*(now-last)/1000;last=now;if(acc>=1){window.scrollBy(0,Math.floor(acc));acc%=1}raf=requestAnimationFrame(step)};raf=requestAnimationFrame(step)}
+let wakeLock=null;
+async function requestWakeLock(){try{if('wakeLock'in navigator)wakeLock=await navigator.wakeLock.request('screen')}catch{}}
+function releaseWakeLock(){if(wakeLock){wakeLock.release();wakeLock=null}}
+
+function exportSongs(){const blob=new Blob([JSON.stringify(state.songs,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`cifras-${new Date().toISOString().slice(0,10)}.json`;a.click()}
+function importSongs(file){const fr=new FileReader();fr.onload=()=>{try{const arr=JSON.parse(fr.result);if(!Array.isArray(arr))throw 0;if(confirm(`Importar ${arr.length} cifra(s)?`)){state.songs=arr.concat(state.songs);save();render()}}catch{alert('Arquivo inválido')}};fr.readAsText(file)}
+
+function render(){
+  if(state.view==='list')return renderList();
+  if(state.view==='read')return renderRead();
+  if(state.view==='edit')return renderEdit();
+  if(state.view==='bulk')return renderBulk();
+}
+
+function renderList(){
+  const h=$('#header'),a=$('#app'); $('#player').hidden=true; releaseWakeLock();
+  
+  h.innerHTML=`<h1>Minhas cifras</h1>
+    <button class="ghost" id="dk">${state.dark?'☀️':'🌙'}</button>
+    <button class="ghost" id="sort-btn" style="${state.sortMode?'background:#2563eb;color:#fff':''}">${state.sortMode?'Pronto':'Ordenar'}</button>
+    <button id="add">+ Nova</button>`;
+    
+  $('#dk').onclick=()=>{state.dark=!state.dark;localStorage.setItem('dark',state.dark?'1':'0');document.body.classList.toggle('dark',state.dark);render()};
+  $('#sort-btn').onclick=()=>{state.sortMode=!state.sortMode;render()};
+  $('#add').onclick=()=>{state.currentId=null;state.sortMode=false;state.view='edit';render()};
+
+  a.innerHTML=`
+    <input class="search" id="q" type="text" placeholder="Buscar por título ou artista" value="${esc(state.search)}">
+    <div class="toolbar">
+      <button class="ghost" data-f="all" style="${state.filter==='all'?'background:#2563eb;color:#fff':''}">Todas</button>
+      <button class="ghost" data-f="fav" style="${state.filter==='fav'?'background:#2563eb;color:#fff':''}">⭐ Favoritas</button>
+    </div>
+    <div id="list"></div>
+    <div class="footer-btns">
+      <button class="ghost" id="bulk" style="flex:1 1 100%;border-color:#2563eb;color:#2563eb;margin-bottom:8px">✨ Importar Texto (PDF/Web)</button>
+      <button class="ghost" id="exp" style="flex:1">⬇️ Backup</button>
+      <button class="ghost" id="imp" style="flex:1">⬆️ Restaurar</button>
+      <input type="file" id="file" accept=".json" hidden>
+    </div>`;
+
+  function drawList(){
+    const q=state.search.toLowerCase();
+    // Removemos o sort automático para respeitar a ordem que o usuário definir
+    let list=state.songs.filter(s=>s.title.toLowerCase().includes(q)||(s.artist||'').toLowerCase().includes(q));
+    if(state.filter==='fav')list=list.filter(s=>s.fav);
+    
+    $('#list').innerHTML=list.length?list.map((s, index)=>{
+      return `
+      <div class="song-item" data-id="${s.id}" draggable="${state.sortMode}">
+        <div class="info" ${state.sortMode ? 'style="pointer-events:none"' : ''}>
+          <h3>${esc(s.title)}</h3>
+          <small>${esc(s.artist||'')}${s.artist?' · ':''}tom ${esc(s.key||'C')}</small>
+        </div>
+        <button class="star" data-star="${s.id}" ${state.sortMode ? 'style="display:none"' : ''}>${s.fav?'⭐':'☆'}</button>
+        
+        ${state.sortMode ? `
+          <div style="display:flex;gap:4px">
+            <button class="move-btn" data-move="up" data-id="${s.id}">↑</button>
+            <button class="move-btn" data-move="down" data-id="${s.id}">↓</button>
+          </div>
+        ` : ''}
+      </div>`;
+    }).join(''):'<p style="text-align:center;opacity:.55;margin:40px 0">Nenhuma cifra aqui.<br>Toque em <b>+ Nova</b>.</p>';
+
+    // Clique na música
+    document.querySelectorAll('.song-item .info').forEach(el=>{
+      el.onclick=()=>{
+        if(state.sortMode) return;
+        state.currentId=el.parentElement.dataset.id;
+        state.transpose=0;state.capo=0;state.playing=false;state.font=1;
+        state.view='read';render();requestWakeLock();
+      };
+    });
+
+    // Botão de Favorito
+    document.querySelectorAll('[data-star]').forEach(b=>{
+      b.onclick=e=>{
+        e.stopPropagation();
+        const s=state.songs.find(x=>x.id===b.dataset.star);
+        if(s){s.fav=!s.fav;save();b.textContent=s.fav?'⭐':'☆'}
+      };
+    });
+
+    // ===== NOVO: Lógica de Ordenação Manual =====
+    
+    // 1. Setas para cima/baixo (Celular)
+    document.querySelectorAll('[data-move]').forEach(b=>{
+      b.onclick=e=>{
+        e.stopPropagation();
+        const id=b.dataset.id;
+        const dir=b.dataset.move;
+        const index=state.songs.findIndex(x=>x.id===id);
+        
+        if(dir==='up' && index>0){
+          [state.songs[index], state.songs[index-1]] = [state.songs[index-1], state.songs[index]];
+          save(); render();
+        } else if(dir==='down' && index<state.songs.length-1){
+          [state.songs[index], state.songs[index+1]] = [state.songs[index+1], state.songs[index]];
+          save(); render();
+        }
+      };
+    });
+
+    // 2. Arrastar e Soltar (Computador)
+    if(state.sortMode){
+      document.querySelectorAll('.song-item').forEach(item=>{
+        item.ondragstart=e=>{
+          e.dataTransfer.setData('text/plain', item.dataset.id);
+          item.classList.add('dragging');
+        };
+        item.ondragend=()=>item.classList.remove('dragging');
+        
+        item.ondragover=e=>{
+          e.preventDefault();
+          item.classList.add('drag-over');
+        };
+        item.ondragleave=()=>item.classList.remove('drag-over');
+        
+        item.ondrop=e=>{
+          e.preventDefault();
+          item.classList.remove('drag-over');
+          const draggedId=e.dataTransfer.getData('text/plain');
+          const targetId=item.dataset.id;
+          if(draggedId===targetId)return;
+          
+          const dragIdx=state.songs.findIndex(s=>s.id===draggedId);
+          const dropIdx=state.songs.findIndex(s=>s.id===targetId);
+          
+          // Move o item na array
+          const [dragged]=state.songs.splice(dragIdx,1);
+          state.songs.splice(dropIdx,0,dragged);
+          
+          save(); render();
+        };
+      });
+    }
+  }
+  drawList();
+
+  $('#q').oninput=e=>{state.search=e.target.value;drawList()};
+  a.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{state.filter=b.dataset.f;render()});
+  $('#bulk').onclick=()=>{state.view='bulk';render()};
+  $('#exp').onclick=exportSongs;
+  $('#imp').onclick=()=>$('#file').click();
+  $('#file').onchange=e=>importSongs(e.target.files[0]);
+}
+
+// ===== IMPORTADOR =====
+function renderBulk(){
+  $('#player').hidden=true; const h=$('#header'),a=$('#app');
+  h.innerHTML=`<button class="ghost" id="back">←</button><h1>Importar de PDF/Texto</h1>`;
+  $('#back').onclick=()=>{state.view='list';render()};
+  a.innerHTML=`
+    <p style="font-size:13px;opacity:.7;margin-bottom:12px">Cole o texto puro da cifra. O robô vai alinhar os acordes automaticamente.</p>
+    <input type="text" id="b_title" placeholder="Título da Música">
+    <input type="text" id="b_artist" placeholder="Artista (opcional)">
+    <textarea id="b_text" placeholder="Cole o texto aqui..." style="min-height:40vh"></textarea>
+    <button id="b_save" style="width:100%;margin-top:12px;padding:12px">Processar e Salvar</button>
+  `;
+  $('#b_save').onclick=()=>{
+    const title=$('#b_title').value.trim(); const artist=$('#b_artist').value.trim(); const raw=$('#b_text').value;
+    if(!title||!raw)return alert('Título e texto são obrigatórios');
+    let lines=raw.split('\n'); let result=[];
+    const chordLineRegex=/^[A-G][#b]?(?:m|maj|min|dim|aug|sus|add|M|º|°)?[0-9]*(?:\([0-9a-zA-Z#b,]+\))?(?:\/[A-G][#b]?)?(?:\s+[A-G][#b]?(?:m|maj|min|dim|aug|sus|add|M|º|°)?[0-9]*(?:\([0-9a-zA-Z#b,]+\))?(?:\/[A-G][#b]?)?)*\s*$/;
+    const singleChordRegex=/[A-G][#b]?(?:m|maj|min|dim|aug|sus|add|M|º|°)?[0-9]*(?:\([0-9a-zA-Z#b,]+\))?(?:\/[A-G][#b]?)?/g;
+    for(let i=0; i<lines.length; i++){
+      let line=lines[i]; let nextLine=lines[i+1]||'';
+      if(chordLineRegex.test(line.trim()) && line.trim().length>0 && nextLine.trim().length>0 && !chordLineRegex.test(nextLine.trim())){
+        let chords=[...line.matchAll(singleChordRegex)];
+        if(chords.length>0){
+          let newLyric=''; let lastIndex=0;
+          chords.forEach(m=>{
+            let idx=Math.min(m.index, nextLine.length);
+            newLyric += nextLine.substring(lastIndex, idx) + `[${m[0]}]`;
+            lastIndex=idx;
+          });
+          newLyric += nextLine.substring(lastIndex);
+          result.push(newLyric); i++; continue;
+        }
+      }
+      if(chordLineRegex.test(line.trim()) && line.trim().length>0 && (nextLine.trim().length===0 || chordLineRegex.test(nextLine.trim()))){
+         result.push(line.replace(singleChordRegex, '[$&]'));
+         continue;
+      }
+      result.push(line);
+    }
+    const newId=Date.now().toString(36);
+    state.songs.unshift({id: newId,title: title,artist: artist,key: 'C',body: result.join('\n'),fav: false});
+    save(); state.currentId = newId; state.view = 'read'; render();
+  };
+}
+
+function renderRead(){
+  const song=state.songs.find(s=>s.id===state.currentId); if(!song){state.view='list';return render()}
+  const h=$('#header'),a=$('#app'),p=$('#player');
+  const semis=state.transpose-state.capo; const realKey=tp(song.key||'C',state.transpose,state.flats); const capoLabel=state.capo?` · capo ${state.capo}`:'';
+  h.innerHTML=`<button class="ghost" id="back">←</button><h1>${esc(song.title)}</h1><button class="ghost" id="edit">✏️</button>`;
+  $('#back').onclick=()=>{state.playing=false;stopScroll();state.view='list';render()};
+  $('#edit').onclick=()=>{state.playing=false;stopScroll();state.view='edit';render()};
+  const html=song.body.split('\n').map(line=>{
+    const t=line.trim(); if(!t)return '<div style="height:8px"></div>';
+    if(/^\{.*\}$/.test(t))return `<div class="section">${esc(t.slice(1,-1))}</div>`;
+    const segs=parseLine(line).map(s=>`<span class="seg"><span class="chord">${s.chord?esc(tp(s.chord,semis,state.flats)):'&nbsp;'}</span><span class="lyric">${esc(s.text)||'&nbsp;'}</span></span>`).join('');
+    return `<div class="line">${segs}</div>`;
+  }).join('');
+  a.innerHTML=`<div class="controls"><button class="ghost" id="tm">−</button><span style="padding:6px 2px"><span class="badge">${esc(realKey)}</span>${capoLabel}</span><button class="ghost" id="tp">+</button><button class="ghost" id="cm">capo −</button><button class="ghost" id="cp">capo +</button><button class="ghost" id="acc">${state.flats?'♭':'♯'}</button><button class="ghost" id="fm">A−</button><button class="ghost" id="fp">A+</button></div><div id="content" style="font-size:${state.font}em">${html}</div>`;
+  $('#tm').onclick=()=>{state.transpose--;render()}; $('#tp').onclick=()=>{state.transpose++;render()}; $('#cm').onclick=()=>{state.capo=Math.max(0,state.capo-1);render()}; $('#cp').onclick=()=>{state.capo=Math.min(12,state.capo+1);render()}; $('#acc').onclick=()=>{state.flats=!state.flats;render()}; $('#fm').onclick=()=>{state.font=Math.max(0.7,state.font-0.1);render()}; $('#fp').onclick=()=>{state.font=Math.min(1.8,state.font+0.1);render()};
+  p.hidden=false; p.innerHTML=`<button class="ghost" id="play" style="min-width:44px">${state.playing?'⏸':'▶'}</button><input type="range" id="spd" min="0.3" max="3" step="0.1" value="${state.speed}"><span style="font-size:12px;opacity:.7;min-width:34px;text-align:right">${state.speed.toFixed(1)}x</span>`;
+  $('#play').onclick=()=>{state.playing=!state.playing;if(state.playing)startScroll();else stopScroll();$('#play').textContent=state.playing?'⏸':'▶'};
+  $('#spd').oninput=e=>{state.speed=parseFloat(e.target.value);e.target.nextElementSibling.textContent=state.speed.toFixed(1)+'x'}; if(state.playing)startScroll();
+}
+
+function renderEdit(){
+  const song=state.currentId?state.songs.find(s=>s.id===state.currentId):null; $('#player').hidden=true; releaseWakeLock(); const h=$('#header'),a=$('#app');
+  h.innerHTML=`<button class="ghost" id="back">←</button><h1>${song?'Editar':'Nova cifra'}</h1>`;
+  $('#back').onclick=()=>{state.view=song?'read':'list';render()};
+  a.innerHTML=`<input type="text" id="ttl" placeholder="Título" value="${song?esc(song.title):''}"><input type="text" id="art" placeholder="Artista" value="${song?esc(song.artist||''):''}"><input type="text" id="key" placeholder="Tom (ex: C, Am, F#m)" value="${song?esc(song.key||''):''}"><p style="font-size:12px;opacity:.6;margin:4px 0 8px">Use <b>[C]</b> antes da sílaba onde o acorde entra.</p><textarea id="body">${song?esc(song.body):''}</textarea><div style="display:flex;gap:8px;margin-top:12px"><button id="sv" style="flex:1">Salvar</button>${song?'<button class="ghost" id="del">Excluir</button>':''}</div>`;
+  if(song)$('#del').onclick=()=>{if(!confirm('Excluir essa cifra?'))return;state.songs=state.songs.filter(s=>s.id!==song.id);save();state.view='list';render()};
+  $('#sv').onclick=()=>{const title=$('#ttl').value.trim(); const body=$('#body').value;if(!title||!body)return alert('Título e cifra são obrigatórios');const data={title,artist:$('#art').value.trim(),key:$('#key').value.trim()||'C',body};if(song){Object.assign(song,data);state.view='read'}else{const id=Date.now().toString(36);state.songs.unshift({id,...data,fav:false});state.currentId=id;state.view='read'}save();render();};
+}
+
+render();
+if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
