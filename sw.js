@@ -1,4 +1,4 @@
-const CACHE='cifras-v5';
+const CACHE='cifras-v6';
 const ASSETS=['./','./index.html'];
 self.addEventListener('install',e=>{
   e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)));
