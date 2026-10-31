@@ -1,0 +1,18 @@
+{
+  "name": "Minhas Cifras",
+  "short_name": "Cifras",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#141414",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA1MTIgNTEyIj48cmVjdCB3aWR0aD0iNTEyIiBoZWlnaHQ9IjUxMiIgZmlsbD0iIzI1NjNlYiIvPjxwYXRoIGQ9Ik0yMDggMzM2VjEzNmw5Ni0zMnYxOTJjLTE3LjctMTEuNi00MC0xNi02Mi4yLTEwLTMwLjIgOC00OS44IDM2LjItNDkuOCA2Ni41IDAgMzUuMyAzMS4zIDY0IDcwIDY0czcwLTI4LjcgNzAtNjRjMC0xLjQtLjEtMi44LS4yLTQuMnoiIGZpbGw9IiNmZmYiLz48L3N2Zz4=",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
